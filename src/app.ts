@@ -17,6 +17,11 @@ app.get("/", (req, res) => {
   res.send("BOT IS ALIVE");
 });
 
+// ✅ UPTIME ROBOT ENDPOINT
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
+
 app.get("/status", (req, res) => {
   res.json({
     status: "alive",
@@ -24,7 +29,6 @@ app.get("/status", (req, res) => {
   });
 });
 
-// FIX: TypeScript + Replit port fix
 const PORT = Number(process.env.PORT) || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
@@ -123,7 +127,6 @@ bot.on("message", async (ctx: any) => {
     const text = ctx.message?.text;
     if (!text) return;
 
-    // CLIENT → GROUP
     if (chatId !== GROUP_ID) {
       const name = ctx.from.first_name || "Client";
       const username = ctx.from.username;
@@ -164,7 +167,6 @@ ID:${userId}`;
       return;
     }
 
-    // GROUP → USER
     const reply = ctx.message?.reply_to_message;
     if (!reply) return;
 
@@ -227,6 +229,11 @@ bot.action(/reject_(\d+)/, async (ctx) => {
 });
 
 // ================== START ==================
-bot.launch();
+(async () => {
+  await bot.launch();
+  console.log("🚀 BOT STARTED + KEEP ALIVE ACTIVE");
+})();
 
-console.log("🚀 CRM FIXED + KEEP ALIVE RUNNING");
+// graceful shutdown
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
