@@ -1,5 +1,4 @@
 import * as dotenv from "dotenv";
-import express from "express";
 import { Telegraf } from "telegraf";
 import { google } from "googleapis";
 
@@ -9,31 +8,6 @@ dotenv.config();
 const bot = new Telegraf(process.env.BOT_TOKEN!);
 const GROUP_ID = Number(process.env.GROUP_ID!);
 const SPREADSHEET_ID = process.env.SHEET_ID!;
-
-// ================== KEEP ALIVE SERVER ==================
-const app = express();
-
-app.get("/", (req, res) => {
-  res.send("BOT IS ALIVE");
-});
-
-// ✅ UPTIME ROBOT ENDPOINT
-app.get("/health", (req, res) => {
-  res.status(200).send("OK");
-});
-
-app.get("/status", (req, res) => {
-  res.json({
-    status: "alive",
-    time: new Date().toISOString(),
-  });
-});
-
-const PORT = Number(process.env.PORT) || 3000;
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("KEEP ALIVE SERVER RUNNING");
-});
 
 // ================== GOOGLE ==================
 const auth = new google.auth.GoogleAuth({
@@ -64,6 +38,14 @@ function getContent(ctx: any): string {
   return "[Сообщение]";
 }
 
+// ================== STATUS ==================
+function formatStatus(status: string) {
+  if (status === "В работе") return "🟡 В работе";
+  if (status === "Закрыто") return "🟢 Закрыто";
+  if (status === "Отказ") return "🔴 Отказ";
+  return "🔵 Новый";
+}
+
 // ================== SAVE ==================
 async function saveToSheet(data: any) {
   await sheets.spreadsheets.values.append({
@@ -83,7 +65,7 @@ async function saveToSheet(data: any) {
   });
 }
 
-// ================== UPDATE STATUS ==================
+// ================== UPDATE SHEET STATUS ==================
 async function updateSheetStatus(userId: number, status: string) {
   try {
     const res = await sheets.spreadsheets.values.get({
@@ -117,22 +99,19 @@ async function updateSheetStatus(userId: number, status: string) {
   }
 }
 
-// ================== MAIN LOGIC ==================
+// ================== BOT MESSAGE ==================
 bot.on("message", async (ctx: any) => {
-  try {
-    if (!ctx.from || !ctx.chat) return;
+  if (!ctx.from || !ctx.chat) return;
+  if (ctx.chat.id === GROUP_ID) return;
 
-    const chatId = ctx.chat.id;
-    const userId = ctx.from.id;
-    const text = ctx.message?.text;
-    if (!text) return;
+  const userId = ctx.from.id;
+  const name = ctx.from.first_name || "Client";
+  const username = ctx.from.username;
+  const profile = username ? `@${username}` : `ID:${userId}`;
 
-    if (chatId !== GROUP_ID) {
-      const name = ctx.from.first_name || "Client";
-      const username = ctx.from.username;
-      const profile = username ? `@${username}` : `ID:${userId}`;
+  const text = getContent(ctx);
 
-      const message = `━━━━━━━━━━━━━━
+  const message = `━━━━━━━━━━━━━━
 🕒 ${getKyivTime()}
 👤 ${name}
 🆔 ${userId}
@@ -144,96 +123,84 @@ bot.on("message", async (ctx: any) => {
 ━━━━━━━━━━━━━━
 ID:${userId}`;
 
-      await ctx.telegram.sendMessage(GROUP_ID, message, {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "🟡 В работе", callback_data: `work_${userId}` },
-              { text: "🟢 Закрыто", callback_data: `done_${userId}` },
-            ],
-            [{ text: "🔴 Отказ", callback_data: `reject_${userId}` }],
-          ],
-        },
-      });
+  await ctx.telegram.sendMessage(GROUP_ID, message, {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "🟡 В работе", callback_data: `work_${userId}` },
+          { text: "🟢 Закрыто", callback_data: `done_${userId}` },
+        ],
+        [{ text: "🔴 Отказ", callback_data: `reject_${userId}` }],
+      ],
+    },
+  });
 
-      await saveToSheet({
-        name,
-        userId,
-        message: text,
-        telegram: profile,
-      });
+  await saveToSheet({
+    name,
+    userId,
+    message: text,
+    telegram: profile,
+  });
 
-      await ctx.reply("Дякуємо! Менеджер скоро зв’яжется з вами.");
-      return;
-    }
-
-    const reply = ctx.message?.reply_to_message;
-    if (!reply) return;
-
-    const match = reply.text?.match(/ID:(\d+)/);
-    if (!match) return;
-
-    const targetUser = Number(match[1]);
-
-    await ctx.telegram.sendMessage(targetUser, text);
-
-  } catch (e) {
-    console.log("ERROR:", e);
-  }
+  await ctx.reply("Дякуємо! Менеджер скоро зв’яжется з вами.");
 });
 
-// ================== STATUS BUTTONS ==================
+// ================== SAFE BUTTONS (NO CRASH UI) ==================
 bot.action(/work_(\d+)/, async (ctx) => {
   const userId = Number(ctx.match[1]);
-  const msg = ctx.callbackQuery.message as any;
 
   try {
+    const msg = ctx.callbackQuery.message as any;
+
     await ctx.editMessageText(
       msg.text.replace(/📊 Статус:.*/, "📊 Статус: 🟡 В работе"),
       { reply_markup: msg.reply_markup }
     );
-  } catch {}
+  } catch (e) {
+    console.log("EDIT ERROR:", e);
+  }
 
   await updateSheetStatus(userId, "В работе");
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery("В работе");
 });
 
 bot.action(/done_(\d+)/, async (ctx) => {
   const userId = Number(ctx.match[1]);
-  const msg = ctx.callbackQuery.message as any;
 
   try {
+    const msg = ctx.callbackQuery.message as any;
+
     await ctx.editMessageText(
       msg.text.replace(/📊 Статус:.*/, "📊 Статус: 🟢 Закрыто"),
       { reply_markup: msg.reply_markup }
     );
-  } catch {}
+  } catch (e) {
+    console.log("EDIT ERROR:", e);
+  }
 
   await updateSheetStatus(userId, "Закрыто");
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery("Закрыто");
 });
 
 bot.action(/reject_(\d+)/, async (ctx) => {
   const userId = Number(ctx.match[1]);
-  const msg = ctx.callbackQuery.message as any;
 
   try {
+    const msg = ctx.callbackQuery.message as any;
+
     await ctx.editMessageText(
       msg.text.replace(/📊 Статус:.*/, "📊 Статус: 🔴 Отказ"),
       { reply_markup: msg.reply_markup }
     );
-  } catch {}
+  } catch (e) {
+    console.log("EDIT ERROR:", e);
+  }
 
   await updateSheetStatus(userId, "Отказ");
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery("Отказ");
 });
 
 // ================== START ==================
-(async () => {
-  await bot.launch();
-  console.log("🚀 BOT STARTED + KEEP ALIVE ACTIVE");
-})();
+bot.launch();
 
-// graceful shutdown
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+console.log("🚀 CRM FINAL STABLE BUILD READY");
