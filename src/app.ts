@@ -10,14 +10,24 @@ const bot = new Telegraf(process.env.BOT_TOKEN!);
 const GROUP_ID = Number(process.env.GROUP_ID!);
 const SPREADSHEET_ID = process.env.SHEET_ID!;
 
-// ================== KEEP ALIVE SERVER (ВАЖНО ДЛЯ REPLIT) ==================
+// ================== KEEP ALIVE SERVER ==================
 const app = express();
 
 app.get("/", (req, res) => {
   res.send("BOT IS ALIVE");
 });
 
-app.listen(3000, () => {
+app.get("/status", (req, res) => {
+  res.json({
+    status: "alive",
+    time: new Date().toISOString(),
+  });
+});
+
+// FIX: TypeScript + Replit port fix
+const PORT = Number(process.env.PORT) || 3000;
+
+app.listen(PORT, "0.0.0.0", () => {
   console.log("KEEP ALIVE SERVER RUNNING");
 });
 
@@ -113,7 +123,7 @@ bot.on("message", async (ctx: any) => {
     const text = ctx.message?.text;
     if (!text) return;
 
-    // ================= CLIENT =================
+    // CLIENT → GROUP
     if (chatId !== GROUP_ID) {
       const name = ctx.from.first_name || "Client";
       const username = ctx.from.username;
@@ -154,7 +164,7 @@ ID:${userId}`;
       return;
     }
 
-    // ================= GROUP REPLY =================
+    // GROUP → USER
     const reply = ctx.message?.reply_to_message;
     if (!reply) return;
 
@@ -170,7 +180,7 @@ ID:${userId}`;
   }
 });
 
-// ================== STATUS ==================
+// ================== STATUS BUTTONS ==================
 bot.action(/work_(\d+)/, async (ctx) => {
   const userId = Number(ctx.match[1]);
   const msg = ctx.callbackQuery.message as any;
